@@ -12,6 +12,11 @@ use poll_promise::Promise;
 use rfd::FileDialog;
 use zip_extract::extract;
 
+// This is just so that rustfmt doesn't completely stop formatting the codebase
+// (it has an issue with print width that causes it to not format the whole function)
+static FRAMEWORK_DOWNLOAD_URL: &str =
+	"https://github.com/atampy25/simple-mod-framework/releases/latest/download/Release.zip";
+
 pub struct App {
 	game_folder: PathBuf,
 	download_size: f64,
@@ -79,7 +84,6 @@ impl eframe::App for App {
 				let mut set_game_path = false;
 
 				ui.horizontal_wrapped(|ui| {
-					let mut path_not_valid = false;
 					let mut game_folder_set_automatically = false;
 
 					for path in [
@@ -91,6 +95,7 @@ impl eframe::App for App {
 						if Path::new(&path.join("Retail")).is_dir()
 							&& (Path::new(&path.join("Runtime")).is_dir()
 								|| Path::new(&path.join("Retail").join("Runtime")).is_dir())
+							&& !path.join("Simple Mod Framework").is_dir()
 						{
 							self.game_folder = path;
 							game_folder_set_automatically = true;
@@ -99,27 +104,43 @@ impl eframe::App for App {
 
 					if self.game_folder.to_str().unwrap() != "" {
 						ui.label(RichText::from(self.game_folder.to_str().unwrap()).size(7.0));
-						if Path::new(&self.game_folder.join("Retail")).is_dir()
-							&& (Path::new(&self.game_folder.join("Runtime")).is_dir()
-								|| Path::new(&self.game_folder.join("Retail").join("Runtime"))
-									.is_dir())
-						{
-							if game_folder_set_automatically {
+
+						if {
+							// Game folder has Retail
+							let subfolder_retail = self.game_folder.join("Retail").is_dir();
+
+							// Game folder has Runtime or Retail/Runtime
+							let subfolder_runtime = self.game_folder.join("Runtime").is_dir()
+								|| self.game_folder.join("Retail").join("Runtime").is_dir();
+
+							// User is not trying to install the framework on the wrong game
+							let ishitman3 = self
+								.game_folder
+								.join("Retail")
+								.join("HITMAN3.exe")
+								.is_file();
+
+							subfolder_retail && subfolder_runtime && ishitman3
+						} {
+							if self.game_folder.join("Simple Mod Framework").is_dir() {
 								ui.label(
-									RichText::from("✅ Game folder found automatically").size(7.0)
+									RichText::from("❌ Framework already installed here").size(7.0)
 								);
 							} else {
-								ui.label(RichText::from("✅ Game folder selected").size(7.0));
+								if game_folder_set_automatically {
+									ui.label(
+										RichText::from("✅ Game folder found automatically")
+											.size(7.0)
+									);
+								} else {
+									ui.label(RichText::from("✅ Game folder selected").size(7.0));
+								}
+								set_game_path = true;
+								return;
 							}
-							set_game_path = true;
-							return;
 						} else {
-							path_not_valid = true;
+							ui.label(RichText::from("❌ Not a HITMAN 3 folder").size(7.0));
 						}
-					}
-
-					if path_not_valid {
-						ui.label(RichText::from("❌ Not a game folder").size(7.0));
 					}
 
 					if ui
@@ -132,9 +153,25 @@ impl eframe::App for App {
 							)
 							.pick_folder()
 						{
-							if let Some(x) = read_dir(&folder).unwrap().next() {
-								if x.as_ref().unwrap().path().join("Retail").is_dir() {
-									folder = x.unwrap().path();
+							if let Some(first_subfolder) = read_dir(&folder).unwrap().next() {
+								// Folder has contents
+								if first_subfolder
+									.as_ref()
+									.unwrap()
+									.path()
+									.join("Retail")
+									.is_dir()
+								{
+									// Subfolder exists with Retail inside it (i.e. user has selected containing folder instead of game folder)
+									folder = first_subfolder.unwrap().path();
+								}
+							}
+
+							if let Some(parent_folder) = folder.parent() {
+								// Folder has a parent
+								if parent_folder.join("Retail").is_dir() {
+									// Parent folder contains a Retail folder (i.e. user has selected Retail/Runtime instead of game folder)
+									folder = parent_folder.to_owned();
 								}
 							}
 
@@ -164,8 +201,7 @@ impl eframe::App for App {
 								let ctx = ctx.clone();
 								let (sender, promise) = Promise::new();
 
-								let request =
-									ehttp::Request::get("https://github.com/atampy25/simple-mod-framework/releases/latest/download/Release.zip");
+								let request = ehttp::Request::get(FRAMEWORK_DOWNLOAD_URL);
 
 								ehttp::fetch(request, move |response| {
 									let data = response.map(|x| x.bytes);
