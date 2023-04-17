@@ -93,7 +93,8 @@ impl eframe::App for App {
 
 				ui.label(
 					"It seems a critical error has occurred. Try restarting the installation \
-					 process, or give Atampy26 the following error message on Hitman Forum."
+					 process, or give Atampy26 the following error message on Hitman Forum (note \
+					 that this does not say Nexus Mods)."
 				);
 
 				ui.label(RichText::from(error).size(7.0));
@@ -115,9 +116,9 @@ impl eframe::App for App {
 				ui.label(
 					RichText::from(
 						"If you're using a Microsoft version of the game (Xbox/Game Pass), you \
-						 may need to enable the \"Advanced management features\" option to \
-						 manually select where to install the game. When that's done, you should \
-						 be able to select the game folder here."
+						 may need to enable the \"Advanced management features\" option to be \
+						 able to install the framework. When that's done, you should be able to \
+						 select the game folder here."
 					)
 					.size(8.0)
 				);
@@ -255,51 +256,54 @@ impl eframe::App for App {
 					{
 						match hive.value("SteamPath") {
 							Ok(Data::String(d)) => {
-								match fs::read_to_string(
-									Path::new(&d.to_string_lossy())
+								if let Ok(s) = fs::read_to_string(
+									if Path::new(&d.to_string_lossy())
 										.join("config")
 										.join("libraryfolders.vdf")
-								) {
-									Ok(s) => {
-										let folders: HashMap<String, SteamLibraryFolder> =
-											keyvalues_serde::from_str(&s).unwrap();
-
-										for folder in folders.values() {
-											if folder.apps.contains_key("1659040")
-												|| folder.apps.contains_key("1847520")
-											{
-												let users: HashMap<String, SteamUser> =
-													keyvalues_serde::from_str(
-														&fs::read_to_string(
-															Path::new(&d.to_string_lossy())
-																.join("config")
-																.join("loginusers.vdf")
-														)
-														.unwrap()
-													)
-													.unwrap();
-
-												check_paths.push((
-													Path::new(&folder.path)
-														.join("steamapps")
-														.join("common")
-														.join("HITMAN 3"),
-													Some(
-														users
-															.values()
-															.find(|x| x.most_recent)
-															.unwrap()
-															.persona_name
-															.to_owned()
-													)
-												));
-											}
-										}
+										.exists()
+									{
+										Path::new(&d.to_string_lossy())
+											.join("config")
+											.join("libraryfolders.vdf")
+									} else {
+										Path::new(&d.to_string_lossy())
+											.join("steamapps")
+											.join("libraryfolders.vdf")
 									}
+								) {
+									let folders: HashMap<String, SteamLibraryFolder> =
+										keyvalues_serde::from_str(&s).unwrap();
 
-									Err(err) => {
-										self.error = Some(err.to_string());
-										return;
+									for folder in folders.values() {
+										if folder.apps.contains_key("1659040")
+											|| folder.apps.contains_key("1847520")
+										{
+											let users: HashMap<String, SteamUser> =
+												keyvalues_serde::from_str(
+													&fs::read_to_string(
+														Path::new(&d.to_string_lossy())
+															.join("config")
+															.join("loginusers.vdf")
+													)
+													.unwrap()
+												)
+												.unwrap();
+
+											check_paths.push((
+												Path::new(&folder.path)
+													.join("steamapps")
+													.join("common")
+													.join("HITMAN 3"),
+												Some(
+													users
+														.values()
+														.find(|x| x.most_recent)
+														.unwrap()
+														.persona_name
+														.to_owned()
+												)
+											));
+										}
 									}
 								};
 							}
@@ -310,10 +314,7 @@ impl eframe::App for App {
 								return;
 							}
 
-							Err(err) => {
-								self.error = Some(err.to_string());
-								return;
-							}
+							Err(_) => {}
 						}
 					}
 
@@ -413,7 +414,8 @@ impl eframe::App for App {
 							 version already has the framework installed). Make sure you're \
 							 trying to install the framework on a copy of HITMAN 3 installed via \
 							 Steam, Epic Games Launcher/Legendary or the Xbox app; if you can't \
-							 fix this, contact Atampy26 on Hitman Forum."
+							 fix this, contact Atampy26 on Hitman Forum (note that this does not \
+							 say Nexus Mods)."
 						)
 						.size(7.0)
 					);
@@ -432,6 +434,7 @@ impl eframe::App for App {
 							))
 							.size(8.0)
 						);
+
 						ui.horizontal_wrapped(|ui| {
 							if self.selected_game_folder.is_some() {
 								if self.download_promise.is_none()
