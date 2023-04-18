@@ -7,9 +7,10 @@ use std::{
 	process::Command
 };
 
+use anyhow::Context;
 use base64::{engine::general_purpose, Engine};
 use dirs::home_dir;
-use egui::{CentralPanel, Color32, ComboBox, Context, RichText};
+use egui::{CentralPanel, Color32, ComboBox, Context as EguiContext, RichText};
 use human_bytes::human_bytes;
 use ini::Ini;
 use mslnk::ShellLink;
@@ -25,7 +26,7 @@ static FRAMEWORK_DOWNLOAD_URL: &str =
 	"https://github.com/atampy25/simple-mod-framework/releases/latest/download/Release.zip";
 
 pub struct App {
-	download_size: f64,
+	download_size: Option<f64>,
 	download_promise: Option<Promise<Result<Vec<u8>, String>>>,
 	installation_done: bool,
 	error: Option<String>,
@@ -52,21 +53,19 @@ struct SteamUser {
 impl App {
 	/// Called once before the first frame.
 	pub fn new() -> Self {
-		App {
-			download_size: if let Ok(data) = reqwest::blocking::Client::new()
+		let download_size: anyhow::Result<f64> = try {
+			reqwest::blocking::Client::new()
 				.head(FRAMEWORK_DOWNLOAD_URL)
-				.send()
-			{
-				data.headers()
-					.get("Content-Length")
-					.unwrap()
-					.to_str()
-					.unwrap()
-					.parse()
-					.unwrap()
-			} else {
-				-1.0
-			},
+				.send()?
+				.headers()
+				.get("Content-Length")
+				.context("Content-Length")?
+				.to_str()?
+				.parse()?
+		};
+
+		App {
+			download_size: download_size.ok(),
 			download_promise: None,
 			installation_done: false,
 			error: None,
@@ -84,7 +83,7 @@ impl Default for App {
 }
 
 impl eframe::App for App {
-	fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+	fn update(&mut self, ctx: &EguiContext, _frame: &mut eframe::Frame) {
 		ctx.set_pixels_per_point(3.0);
 
 		if let Some(error) = &self.error {
@@ -97,7 +96,11 @@ impl eframe::App for App {
 					 that this does not say Nexus Mods)."
 				);
 
-				ui.label(RichText::from(error).size(7.0));
+				ui.label(
+					RichText::from(error)
+						.color(Color32::from_rgb(200, 50, 50))
+						.size(7.0)
+				);
 			});
 		} else {
 			CentralPanel::default().show(ctx, |ui| {
@@ -125,261 +128,269 @@ impl eframe::App for App {
 
 				ui.add_space(2.5);
 
-				if !self.performed_automatic_check {
-					let mut check_paths = vec![];
+				let x: anyhow::Result<()> = try {
+					if !self.performed_automatic_check {
+						let mut check_paths = vec![];
 
-					let legendary_installed_path =
-						Path::new(&std::env::var("USERPROFILE").unwrap())
-							.join(".config")
-							.join("legendary")
-							.join("installed.json");
+						let legendary_installed_path =
+							Path::new(&std::env::var("USERPROFILE").context("%USERPROFILE%")?)
+								.join(".config")
+								.join("legendary")
+								.join("installed.json");
 
-					// Check for a Legendary install
-					if legendary_installed_path.exists() {
-						let legendary_installed_data: Value =
-							serde_json::from_slice(&fs::read(legendary_installed_path).unwrap())
-								.unwrap();
+						// Check for a Legendary install
+						if legendary_installed_path.exists() {
+							let legendary_installed_data: Value = serde_json::from_slice(
+								&fs::read(legendary_installed_path)
+									.context("Reading legendary installed")?
+							)?;
 
-						if let Some(data) = legendary_installed_data.get("Eider") {
-							check_paths.push((
-								PathBuf::from(data.get("install_path").unwrap().as_str().unwrap()),
-								Some(
-									serde_json::from_slice::<Value>(
-										&fs::read(
-											Path::new(&std::env::var("USERPROFILE").unwrap())
+							if let Some(data) = legendary_installed_data.get("Eider") {
+								check_paths.push((
+									PathBuf::from(
+										data.get("install_path")
+											.context("install_path")?
+											.as_str()
+											.context("as_str")?
+									),
+									Some(
+										serde_json::from_slice::<Value>(&fs::read(
+											Path::new(&std::env::var("USERPROFILE")?)
 												.join(".config")
 												.join("legendary")
 												.join("user.json")
-										)
-										.unwrap()
+										)?)?
+										.get("displayName")
+										.context("displayName")?
+										.as_str()
+										.context("as_str")?
+										.to_owned()
 									)
-									.unwrap()
-									.get("displayName")
-									.unwrap()
-									.as_str()
-									.unwrap()
-									.to_owned()
-								)
-							));
-						}
-					}
-
-					// Check for EOS manifests
-					if let Ok(hive) =
-						Hive::CurrentUser.open(r#"Software\Epic Games\EOS"#, Security::Read)
-					{
-						match hive.value("ModSdkMetadataDir") {
-							Ok(Data::String(d)) => {
-								for entry in fs::read_dir(d.to_string_lossy())
-									.unwrap()
-									.filter_map(|x| x.ok())
-									.filter(|x| x.file_type().unwrap().is_file())
-								{
-									let manifest_data: Value =
-										serde_json::from_slice(&fs::read(entry.path()).unwrap())
-											.unwrap();
-
-									if manifest_data.get("AppName").unwrap().as_str().unwrap()
-										== "Eider"
-									{
-										let mut username = None;
-
-										if Path::new(&std::env::var("LOCALAPPDATA").unwrap())
-											.join("EpicGamesLauncher")
-											.join("Saved")
-											.join("Config")
-											.join("Windows")
-											.join("GameUserSettings.ini")
-											.exists()
-										{
-											if let Some(x) = Ini::load_from_file(
-												Path::new(&std::env::var("LOCALAPPDATA").unwrap())
-													.join("EpicGamesLauncher")
-													.join("Saved")
-													.join("Config")
-													.join("Windows")
-													.join("GameUserSettings.ini")
-											)
-											.unwrap()
-											.section(Some("Offline"))
-											.and_then(|x| x.get("Data"))
-											{
-												username = Some(
-													serde_json::from_slice::<Value>(
-														&general_purpose::STANDARD
-															.decode(x)
-															.unwrap()
-													)
-													.unwrap()
-													.get(0)
-													.unwrap()
-													.get("DisplayName")
-													.unwrap()
-													.as_str()
-													.unwrap()
-													.to_owned()
-												);
-											};
-										}
-
-										check_paths.push((
-											PathBuf::from(
-												manifest_data
-													.get("InstallLocation")
-													.unwrap()
-													.as_str()
-													.unwrap()
-											),
-											username
-										));
-									}
-								}
-							}
-
-							Ok(_) => {
-								self.error = Some(
-									"Registry key ModSdkMetadataDir was not string".to_owned()
-								);
-								return;
-							}
-
-							Err(err) => {
-								self.error = Some(err.to_string());
-								return;
+								));
 							}
 						}
-					}
 
-					// Check for a Steam install
-					if let Ok(hive) =
-						Hive::CurrentUser.open(r#"Software\Valve\Steam"#, Security::Read)
-					{
-						match hive.value("SteamPath") {
-							Ok(Data::String(d)) => {
-								if let Ok(s) = fs::read_to_string(
-									if Path::new(&d.to_string_lossy())
-										.join("config")
-										.join("libraryfolders.vdf")
-										.exists()
+						// Check for EOS manifests
+						if let Ok(hive) =
+							Hive::CurrentUser.open(r#"Software\Epic Games\EOS"#, Security::Read)
+						{
+							match hive.value("ModSdkMetadataDir") {
+								Ok(Data::String(d)) => {
+									for entry in fs::read_dir(d.to_string_lossy())?
+										.filter_map(|x| x.ok())
+										.filter(|x| x.file_type().unwrap().is_file())
 									{
-										Path::new(&d.to_string_lossy())
-											.join("config")
-											.join("libraryfolders.vdf")
-									} else {
-										Path::new(&d.to_string_lossy())
-											.join("steamapps")
-											.join("libraryfolders.vdf")
-									}
-								) {
-									let folders: HashMap<String, SteamLibraryFolder> =
-										keyvalues_serde::from_str(&s).unwrap();
-
-									for folder in folders.values() {
-										if folder.apps.contains_key("1659040")
-											|| folder.apps.contains_key("1847520")
-										{
-											let users: HashMap<String, SteamUser> =
-												keyvalues_serde::from_str(
-													&fs::read_to_string(
-														Path::new(&d.to_string_lossy())
-															.join("config")
-															.join("loginusers.vdf")
-													)
-													.unwrap()
+										let manifest_data: Value = serde_json::from_slice(
+											&fs::read(entry.path()).with_context(|| {
+												format!(
+													"{}{}",
+													"EOS manifest",
+													entry.path().display()
 												)
-												.unwrap();
+											})?
+										)?;
+
+										if manifest_data
+											.get("AppName")
+											.context("AppName")?
+											.as_str()
+											.context("as_str")? == "Eider"
+										{
+											let mut username = None;
+
+											if Path::new(&std::env::var("LOCALAPPDATA")?)
+												.join("EpicGamesLauncher")
+												.join("Saved")
+												.join("Config")
+												.join("Windows")
+												.join("GameUserSettings.ini")
+												.exists()
+											{
+												if let Some(x) = Ini::load_from_file(
+													Path::new(&std::env::var("LOCALAPPDATA")?)
+														.join("EpicGamesLauncher")
+														.join("Saved")
+														.join("Config")
+														.join("Windows")
+														.join("GameUserSettings.ini")
+												)?
+												.section(Some("Offline"))
+												.and_then(|x| x.get("Data"))
+												{
+													username = Some(
+														serde_json::from_slice::<Value>(
+															&general_purpose::STANDARD.decode(x)?
+														)?
+														.get(0)
+														.context("get 0")?
+														.get("DisplayName")
+														.context("DisplayName")?
+														.as_str()
+														.context("as_str")?
+														.to_owned()
+													);
+												};
+											}
 
 											check_paths.push((
-												Path::new(&folder.path)
-													.join("steamapps")
-													.join("common")
-													.join("HITMAN 3"),
-												Some(
-													users
-														.values()
-														.find(|x| x.most_recent)
-														.unwrap()
-														.persona_name
-														.to_owned()
-												)
+												PathBuf::from(
+													manifest_data
+														.get("InstallLocation")
+														.context("InstallLocation")?
+														.as_str()
+														.context("as_str")?
+												),
+												username
 											));
 										}
 									}
-								};
-							}
-
-							Ok(_) => {
-								self.error =
-									Some("Registry key SteamPath was not string".to_owned());
-								return;
-							}
-
-							Err(_) => {}
-						}
-					}
-
-					// Check for a Microsoft install
-					if let Ok(proc_out) = Command::new("powershell")
-						.args([
-							"-Command",
-							"Get-AppxPackage -Name IOInteractiveAS.PC-HITMAN3-BaseGame"
-						])
-						.creation_flags(0x08000000) // CREATE_NO_WINDOW
-						.output()
-					{
-						if let Some(line) = String::from_utf8_lossy(&proc_out.stdout)
-							.lines()
-							.find(|x| x.starts_with("InstallLocation"))
-						{
-							let mut username = None;
-
-							if let Ok(hive) = Hive::CurrentUser
-								.open(r#"Software\Microsoft\XboxLive"#, Security::Read)
-							{
-								if let Ok(Data::String(d)) = hive.value("ModernGamertag") {
-									username = Some(d.to_string_lossy());
 								}
+
+								Ok(_) => Err(anyhow::anyhow!("Registry key ModSdkMetadataDir \
+								                              was not string"
+									.to_owned()))?,
+
+								Err(_) => {}
 							}
-
-							check_paths.push((
-								PathBuf::from(
-									line.split(':').skip(1).collect::<Vec<_>>().join(":").trim()
-								),
-								username
-							));
 						}
-					}
 
-					for (path, username) in check_paths {
-						// Game folder has Retail
-						let subfolder_retail = path.join("Retail").is_dir();
-
-						// Game folder has Runtime or Retail/Runtime
-						let subfolder_runtime = path.join("Runtime").is_dir()
-							|| path.join("Retail").join("Runtime").is_dir();
-
-						// User is not trying to install the framework on the wrong game
-						let ishitman3 = path.join("Retail").join("HITMAN3.exe").is_file();
-
-						let framework_already_installed =
-							path.join("Simple Mod Framework").is_dir();
-
-						if !framework_already_installed
-							&& subfolder_retail && subfolder_runtime
-							&& ishitman3 && !self
-							.valid_game_folders
-							.iter()
-							.any(|(x, y)| *x == path && *y == username)
+						// Check for a Steam install
+						if let Ok(hive) =
+							Hive::CurrentUser.open(r#"Software\Valve\Steam"#, Security::Read)
 						{
-							self.valid_game_folders.push((path.to_owned(), username));
+							match hive.value("SteamPath") {
+								Ok(Data::String(d)) => {
+									if let Ok(s) = fs::read_to_string(
+										if Path::new(&d.to_string_lossy())
+											.join("config")
+											.join("libraryfolders.vdf")
+											.exists()
+										{
+											Path::new(&d.to_string_lossy())
+												.join("config")
+												.join("libraryfolders.vdf")
+										} else {
+											Path::new(&d.to_string_lossy())
+												.join("steamapps")
+												.join("libraryfolders.vdf")
+										}
+									) {
+										let folders: HashMap<String, SteamLibraryFolder> =
+											keyvalues_serde::from_str(&s).context("VDF parse")?;
+
+										for folder in folders.values() {
+											if folder.apps.contains_key("1659040")
+												|| folder.apps.contains_key("1847520")
+											{
+												let users: HashMap<String, SteamUser> =
+													keyvalues_serde::from_str(
+														&fs::read_to_string(
+															Path::new(&d.to_string_lossy())
+																.join("config")
+																.join("loginusers.vdf")
+														)?
+													)?;
+
+												check_paths.push((
+													Path::new(&folder.path)
+														.join("steamapps")
+														.join("common")
+														.join("HITMAN 3"),
+													Some(
+														users
+															.values()
+															.find(|x| x.most_recent)
+															.context("Most recent user")?
+															.persona_name
+															.to_owned()
+													)
+												));
+											}
+										}
+									};
+								}
+
+								Ok(_) => {
+									self.error =
+										Some("Registry key SteamPath was not string".to_owned());
+									return;
+								}
+
+								Err(_) => {}
+							}
 						}
-					}
 
-					if !self.valid_game_folders.is_empty() {
-						self.selected_game_folder = Some(0);
-					}
+						// Check for a Microsoft install
+						if let Ok(proc_out) = Command::new("powershell")
+							.args([
+								"-Command",
+								"Get-AppxPackage -Name IOInteractiveAS.PC-HITMAN3-BaseGame"
+							])
+							.creation_flags(0x08000000) // CREATE_NO_WINDOW
+							.output()
+						{
+							if let Some(line) = String::from_utf8_lossy(&proc_out.stdout)
+								.lines()
+								.find(|x| x.starts_with("InstallLocation"))
+							{
+								let mut username = None;
 
-					self.performed_automatic_check = true;
+								if let Ok(hive) = Hive::CurrentUser
+									.open(r#"Software\Microsoft\XboxLive"#, Security::Read)
+								{
+									if let Ok(Data::String(d)) = hive.value("ModernGamertag") {
+										username = Some(d.to_string_lossy());
+									}
+								}
+
+								check_paths.push((
+									PathBuf::from(
+										line.split(':')
+											.skip(1)
+											.collect::<Vec<_>>()
+											.join(":")
+											.trim()
+									),
+									username
+								));
+							}
+						}
+
+						for (path, username) in check_paths {
+							// Game folder has Retail
+							let subfolder_retail = path.join("Retail").is_dir();
+
+							// Game folder has Runtime or Retail/Runtime
+							let subfolder_runtime = path.join("Runtime").is_dir()
+								|| path.join("Retail").join("Runtime").is_dir();
+
+							// User is not trying to install the framework on the wrong game
+							let ishitman3 = path.join("Retail").join("HITMAN3.exe").is_file();
+
+							let framework_already_installed =
+								path.join("Simple Mod Framework").is_dir();
+
+							if !framework_already_installed
+								&& subfolder_retail && subfolder_runtime
+								&& ishitman3 && !self
+								.valid_game_folders
+								.iter()
+								.any(|(x, y)| *x == path && *y == username)
+							{
+								self.valid_game_folders.push((path.to_owned(), username));
+							}
+						}
+
+						if !self.valid_game_folders.is_empty() {
+							self.selected_game_folder = Some(0);
+						}
+
+						self.performed_automatic_check = true;
+					}
+				};
+
+				if let anyhow::Result::Err(x) = x {
+					self.error = Some(format!("{x:?}"));
 				}
 
 				if !self.valid_game_folders.is_empty() {
@@ -426,11 +437,11 @@ impl eframe::App for App {
 				if self.selected_game_folder.is_some() {
 					ui.label("Ready to install the framework?");
 
-					if self.download_size != -1.0 {
+					if let Some(download_size) = self.download_size {
 						ui.label(
 							RichText::from(format!(
 								"This will download {} of data.",
-								human_bytes(self.download_size)
+								human_bytes(download_size)
 							))
 							.size(8.0)
 						);
