@@ -43,11 +43,19 @@ struct SteamLibraryFolder {
 
 #[derive(Deserialize)]
 struct SteamUser {
-	#[serde(rename = "PersonaName")]
+	#[serde(alias = "PersonaName")]
+	#[serde(alias = "personaname")]
 	persona_name: String,
 
-	#[serde(rename = "MostRecent")]
-	most_recent: bool
+	#[serde(alias = "MostRecent")]
+	#[serde(alias = "mostrecent")]
+	#[serde(default)]
+	most_recent: bool,
+
+	#[serde(alias = "Timestamp")]
+	#[serde(alias = "timestamp")]
+	#[serde(default)]
+	timestamp: u64
 }
 
 impl App {
@@ -301,7 +309,22 @@ impl eframe::App for App {
 														users
 															.values()
 															.find(|x| x.most_recent)
-															.context("Most recent user")?
+															.unwrap_or(
+																users
+																	.values()
+																	.reduce(|cur, x| {
+																		if cur.timestamp
+																			< x.timestamp
+																		{
+																			x
+																		} else {
+																			cur
+																		}
+																	})
+																	.context(
+																		"Steam users was empty"
+																	)?
+															)
 															.persona_name
 															.to_owned()
 													)
