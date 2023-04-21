@@ -344,13 +344,13 @@ impl eframe::App for App {
 								}
 
 								check_paths.push((
-									PathBuf::from(
+									fs::read_link(
 										line.split(':')
 											.skip(1)
 											.collect::<Vec<_>>()
 											.join(":")
 											.trim()
-									),
+									)?,
 									username
 								));
 							}
