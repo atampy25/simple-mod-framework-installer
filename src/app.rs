@@ -151,7 +151,8 @@ impl eframe::App for App {
 							let legendary_installed_data: Value = serde_json::from_slice(
 								&fs::read(legendary_installed_path)
 									.context("Reading legendary installed")?
-							)?;
+							)
+							.context("Legendary installed as JSON")?;
 
 							if let Some(data) = legendary_installed_data.get("Eider") {
 								check_paths.push((
@@ -170,7 +171,8 @@ impl eframe::App for App {
 													.join("user.json")
 											)
 											.context("Reading legendary user")?
-										)?
+										)
+										.context("Legendary user as JSON")?
 										.get("displayName")
 										.context("displayName")?
 										.as_str()
@@ -198,7 +200,8 @@ impl eframe::App for App {
 														entry.path().display()
 													)
 												})?
-											)?;
+											)
+											.context("EOS manifest as JSON")?;
 
 											if manifest_data
 												.get("AppName")
@@ -228,19 +231,23 @@ impl eframe::App for App {
 													.section(Some("Offline"))
 													.and_then(|x| x.get("Data"))
 													{
-														username = Some(
-															serde_json::from_slice::<Value>(
-																&general_purpose::STANDARD
-																	.decode(x)?
-															)?
-															.get(0)
-															.context("get 0")?
-															.get("DisplayName")
-															.context("DisplayName")?
-															.as_str()
-															.context("as_str")?
-															.to_owned()
-														);
+														if let Ok(x) =
+															general_purpose::STANDARD.decode(x)
+														{
+															if let Ok(x) =
+																serde_json::from_slice::<Value>(&x)
+															{
+																username = Some(
+																	x.get(0)
+																		.context("get 0")?
+																		.get("DisplayName")
+																		.context("DisplayName")?
+																		.as_str()
+																		.context("as_str")?
+																		.to_owned()
+																);
+															}
+														}
 													};
 												}
 
