@@ -162,12 +162,15 @@ impl eframe::App for App {
 											.context("as_str")?
 									),
 									Some(
-										serde_json::from_slice::<Value>(&fs::read(
-											Path::new(&std::env::var("USERPROFILE")?)
-												.join(".config")
-												.join("legendary")
-												.join("user.json")
-										)?)?
+										serde_json::from_slice::<Value>(
+											&fs::read(
+												Path::new(&std::env::var("USERPROFILE")?)
+													.join(".config")
+													.join("legendary")
+													.join("user.json")
+											)
+											.context("Reading legendary user")?
+										)?
 										.get("displayName")
 										.context("displayName")?
 										.as_str()
@@ -184,73 +187,74 @@ impl eframe::App for App {
 						{
 							match hive.value("ModSdkMetadataDir") {
 								Ok(Data::String(d)) => {
-									for entry in fs::read_dir(d.to_string_lossy())?
-										.filter_map(|x| x.ok())
-										.filter(|x| {
+									if let Ok(entries) = fs::read_dir(d.to_string_lossy()) {
+										for entry in entries.filter_map(|x| x.ok()).filter(|x| {
 											x.file_type().ok().map(|x| x.is_file()).unwrap_or(false)
 										}) {
-										let manifest_data: Value = serde_json::from_slice(
-											&fs::read(entry.path()).with_context(|| {
-												format!(
-													"{}{}",
-													"EOS manifest",
-													entry.path().display()
-												)
-											})?
-										)?;
+											let manifest_data: Value = serde_json::from_slice(
+												&fs::read(entry.path()).with_context(|| {
+													format!(
+														"Reading EOS manifest {}",
+														entry.path().display()
+													)
+												})?
+											)?;
 
-										if manifest_data
-											.get("AppName")
-											.context("AppName")?
-											.as_str()
-											.context("as_str")? == "Eider"
-										{
-											let mut username = None;
-
-											if Path::new(&std::env::var("LOCALAPPDATA")?)
-												.join("EpicGamesLauncher")
-												.join("Saved")
-												.join("Config")
-												.join("Windows")
-												.join("GameUserSettings.ini")
-												.exists()
+											if manifest_data
+												.get("AppName")
+												.context("AppName")?
+												.as_str()
+												.context("as_str")? == "Eider"
 											{
-												if let Some(x) = Ini::load_from_file(
-													Path::new(&std::env::var("LOCALAPPDATA")?)
-														.join("EpicGamesLauncher")
-														.join("Saved")
-														.join("Config")
-														.join("Windows")
-														.join("GameUserSettings.ini")
-												)?
-												.section(Some("Offline"))
-												.and_then(|x| x.get("Data"))
-												{
-													username = Some(
-														serde_json::from_slice::<Value>(
-															&general_purpose::STANDARD.decode(x)?
-														)?
-														.get(0)
-														.context("get 0")?
-														.get("DisplayName")
-														.context("DisplayName")?
-														.as_str()
-														.context("as_str")?
-														.to_owned()
-													);
-												};
-											}
+												let mut username = None;
 
-											check_paths.push((
-												PathBuf::from(
-													manifest_data
-														.get("InstallLocation")
-														.context("InstallLocation")?
-														.as_str()
-														.context("as_str")?
-												),
-												username
-											));
+												if Path::new(&std::env::var("LOCALAPPDATA")?)
+													.join("EpicGamesLauncher")
+													.join("Saved")
+													.join("Config")
+													.join("Windows")
+													.join("GameUserSettings.ini")
+													.exists()
+												{
+													if let Some(x) = Ini::load_from_file(
+														Path::new(&std::env::var("LOCALAPPDATA")?)
+															.join("EpicGamesLauncher")
+															.join("Saved")
+															.join("Config")
+															.join("Windows")
+															.join("GameUserSettings.ini")
+													)
+													.context("Reading GameUserSettings.ini")?
+													.section(Some("Offline"))
+													.and_then(|x| x.get("Data"))
+													{
+														username = Some(
+															serde_json::from_slice::<Value>(
+																&general_purpose::STANDARD
+																	.decode(x)?
+															)?
+															.get(0)
+															.context("get 0")?
+															.get("DisplayName")
+															.context("DisplayName")?
+															.as_str()
+															.context("as_str")?
+															.to_owned()
+														);
+													};
+												}
+
+												check_paths.push((
+													PathBuf::from(
+														manifest_data
+															.get("InstallLocation")
+															.context("InstallLocation")?
+															.as_str()
+															.context("as_str")?
+													),
+													username
+												));
+											}
 										}
 									}
 								}
@@ -297,7 +301,8 @@ impl eframe::App for App {
 															Path::new(&d.to_string_lossy())
 																.join("config")
 																.join("loginusers.vdf")
-														)?
+														)
+														.context("Reading loginusers.vdf")?
 													)?;
 
 												check_paths.push((
