@@ -193,74 +193,76 @@ impl eframe::App for App {
 										for entry in entries.filter_map(|x| x.ok()).filter(|x| {
 											x.file_type().ok().map(|x| x.is_file()).unwrap_or(false)
 										}) {
-											let manifest_data: Value = serde_json::from_slice(
+											if let Ok(manifest_data) = serde_json::from_slice::<Value>(
 												&fs::read(entry.path()).with_context(|| {
 													format!(
 														"Reading EOS manifest {}",
 														entry.path().display()
 													)
 												})?
-											)
-											.context("EOS manifest as JSON")?;
-
-											if manifest_data
-												.get("AppName")
-												.context("AppName")?
-												.as_str()
-												.context("as_str")? == "Eider"
-											{
-												let mut username = None;
-
-												if Path::new(&std::env::var("LOCALAPPDATA")?)
-													.join("EpicGamesLauncher")
-													.join("Saved")
-													.join("Config")
-													.join("Windows")
-													.join("GameUserSettings.ini")
-													.exists()
+											) {
+												if manifest_data
+													.get("AppName")
+													.context("AppName")?
+													.as_str()
+													.context("as_str")? == "Eider"
 												{
-													if let Some(x) = Ini::load_from_file(
-														Path::new(&std::env::var("LOCALAPPDATA")?)
+													let mut username = None;
+
+													if Path::new(&std::env::var("LOCALAPPDATA")?)
+														.join("EpicGamesLauncher")
+														.join("Saved")
+														.join("Config")
+														.join("Windows")
+														.join("GameUserSettings.ini")
+														.exists()
+													{
+														if let Some(x) = Ini::load_from_file(
+															Path::new(&std::env::var(
+																"LOCALAPPDATA"
+															)?)
 															.join("EpicGamesLauncher")
 															.join("Saved")
 															.join("Config")
 															.join("Windows")
 															.join("GameUserSettings.ini")
-													)
-													.context("Reading GameUserSettings.ini")?
-													.section(Some("Offline"))
-													.and_then(|x| x.get("Data"))
-													{
-														if let Ok(x) =
-															general_purpose::STANDARD.decode(x)
+														)
+														.context("Reading GameUserSettings.ini")?
+														.section(Some("Offline"))
+														.and_then(|x| x.get("Data"))
 														{
 															if let Ok(x) =
-																serde_json::from_slice::<Value>(&x)
+																general_purpose::STANDARD.decode(x)
 															{
-																username = Some(
-																	x.get(0)
-																		.context("get 0")?
-																		.get("DisplayName")
-																		.context("DisplayName")?
-																		.as_str()
-																		.context("as_str")?
-																		.to_owned()
-																);
+																if let Ok(x) =
+																	serde_json::from_slice::<Value>(
+																		&x
+																	) {
+																	username = Some(
+																		x.get(0)
+																			.context("get 0")?
+																			.get("DisplayName")
+																			.context("DisplayName")?
+																			.as_str()
+																			.context("as_str")?
+																			.to_owned()
+																	);
+																}
 															}
-														}
-													};
-												}
+														};
+													}
 
-												check_paths.push((
-													PathBuf::from(
-														manifest_data
-															.get("InstallLocation")
-															.context("InstallLocation")?
-															.as_str()
-															.context("as_str")?
-													),
-													username
-												));
+													check_paths.push((
+														PathBuf::from(
+															manifest_data
+																.get("InstallLocation")
+																.context("InstallLocation")?
+																.as_str()
+																.context("as_str")?
+														),
+														username
+													));
+												}
 											}
 										}
 									}
@@ -461,12 +463,21 @@ impl eframe::App for App {
 					} else {
 						ui.label(
 							RichText::from(
-								"It doesn't look like HITMAN 3 is installed anywhere (that, or \
-								 every version already has the framework installed). Make sure \
-								 you're trying to install the framework on a copy of HITMAN 3 \
-								 installed via Steam, Epic Games Launcher/Legendary or the Xbox \
-								 app; if you can't fix this, contact Atampy26 on Hitman Forum \
-								 (note that this does not say Nexus Mods)."
+								"It doesn't look like an unmodified HITMAN 3 is installed \
+								 anywhere. Make sure you're trying to install the framework on a \
+								 copy of HITMAN 3 installed via Steam, Epic Games \
+								 Launcher/Legendary or the Xbox app; if you can't fix this, \
+								 contact Atampy26 on Hitman Forum (note that this does not say \
+								 Nexus Mods)."
+							)
+							.size(7.0)
+						);
+
+						ui.label(
+							RichText::from(
+								"If you're trying to update the framework, use the Mod Manager's \
+								 integrated update functionality, which you can find by opening \
+								 the Mod Manager and looking at the home page."
 							)
 							.size(7.0)
 						);
