@@ -32,6 +32,7 @@ pub struct App {
 	error: Option<String>,
 	performed_automatic_check: bool,
 	valid_game_folders: Vec<(PathBuf, Option<String>)>,
+	already_installed_folders: Vec<PathBuf>,
 	selected_game_folder: Option<usize>
 }
 
@@ -79,6 +80,7 @@ impl App {
 			error: None,
 			performed_automatic_check: false,
 			valid_game_folders: vec![],
+			already_installed_folders: vec![],
 			selected_game_folder: None
 		}
 	}
@@ -238,15 +240,17 @@ impl eframe::App for App {
 																	serde_json::from_slice::<Value>(
 																		&x
 																	) {
-																	username = Some(
-																		x.get(0)
-																			.context("get 0")?
-																			.get("DisplayName")
-																			.context("DisplayName")?
-																			.as_str()
-																			.context("as_str")?
-																			.to_owned()
-																	);
+																	if let Some(x) = x.get(0) {
+																		username = Some(
+																			x.get("DisplayName")
+																				.context(
+																					"DisplayName"
+																				)?
+																				.as_str()
+																				.context("as_str")?
+																				.to_owned()
+																		);
+																	}
 																}
 															}
 														};
@@ -416,6 +420,10 @@ impl eframe::App for App {
 							{
 								self.valid_game_folders.push((path.to_owned(), username));
 							}
+
+							if framework_already_installed {
+								self.already_installed_folders.push(path.to_owned());
+							}
 						}
 
 						if !self.valid_game_folders.is_empty() {
@@ -460,24 +468,32 @@ impl eframe::App for App {
 								}
 							});
 						}
+					} else if !self.already_installed_folders.is_empty() {
+						ui.label(
+							RichText::from(
+								"The framework is already installed! If you're trying to update \
+								 the framework, use the Mod Manager's integrated update \
+								 functionality, which you can find by opening the Mod Manager and \
+								 looking at the home page."
+							)
+							.size(7.0)
+						);
 					} else {
 						ui.label(
 							RichText::from(
-								"It doesn't look like an unmodified HITMAN 3 is installed \
-								 anywhere. Make sure you're trying to install the framework on a \
-								 copy of HITMAN 3 installed via Steam, Epic Games \
-								 Launcher/Legendary or the Xbox app; if you can't fix this, \
-								 contact Atampy26 on Hitman Forum (note that this does not say \
-								 Nexus Mods)."
+								"It doesn't look like HITMAN 3 is installed anywhere. Make sure \
+								 you're trying to install the framework on a copy of HITMAN 3 \
+								 installed via Steam, Epic Games Launcher/Legendary or the Xbox \
+								 app."
 							)
 							.size(7.0)
 						);
 
 						ui.label(
 							RichText::from(
-								"If you're trying to update the framework, use the Mod Manager's \
-								 integrated update functionality, which you can find by opening \
-								 the Mod Manager and looking at the home page."
+								"Try restarting your computer, and if that doesn't fix it, \
+								 contact Atampy26 on Hitman Forum (note that this does not say \
+								 Nexus Mods)."
 							)
 							.size(7.0)
 						);
