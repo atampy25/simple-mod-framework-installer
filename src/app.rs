@@ -416,9 +416,22 @@ impl eframe::App for App {
 								&& ishitman3 && !self
 								.valid_game_folders
 								.iter()
-								.any(|(x, y)| *x == path && *y == username)
+								.any(|(x, y)| *x == path && y.is_some())
 							{
 								self.valid_game_folders.push((path.to_owned(), username));
+
+								self.valid_game_folders = self
+									.valid_game_folders
+									.iter()
+									.cloned()
+									.filter(|(x, y)| {
+										y.is_some()
+											|| !self
+												.valid_game_folders
+												.iter()
+												.any(|(a, b)| *a == *x && b.is_some())
+									})
+									.collect();
 							}
 
 							if framework_already_installed {

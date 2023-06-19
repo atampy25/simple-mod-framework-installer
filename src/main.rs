@@ -3,7 +3,18 @@
 
 use egui::Vec2;
 
+// extern "system" {
+//     fn SetStdHandle(nStdHandle: u32, hHandle: *mut ()) -> i32;
+// }
+
 fn main() {
+	// use std::os::windows::io::AsRawHandle;
+	// let error_log = r"C:\Users\User\Documents\Github\simple-mod-framework-installer\target\release\error.txt";
+	// let f = std::fs::File::create(error_log).unwrap();
+	// unsafe {
+	//     SetStdHandle((-12_i32) as u32, f.as_raw_handle().cast())
+	// };
+
 	tracing_subscriber::fmt::init();
 
 	let native_options = eframe::NativeOptions {
@@ -14,6 +25,7 @@ fn main() {
 		icon_data: Some(load_icon(include_bytes!("icon.png"))),
 		..Default::default()
 	};
+
 	eframe::run_native(
 		"Simple Mod Framework Installer",
 		native_options,
