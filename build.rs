@@ -15,7 +15,7 @@ fn main() -> io::Result<()> {
 					</security>
 				</trustInfo>
 				</assembly>
-			"#
+			"#,
 		)
 		.compile()?;
 
