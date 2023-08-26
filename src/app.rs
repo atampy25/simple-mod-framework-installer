@@ -16,6 +16,7 @@ use ini::Ini;
 use mslnk::ShellLink;
 use poll_promise::Promise;
 use registry::{Data, Hive, Security};
+use rfd::FileDialog;
 use serde::Deserialize;
 use serde_json::Value;
 use zip_extract::extract;
@@ -33,7 +34,9 @@ pub struct App {
 	performed_automatic_check: bool,
 	valid_game_folders: Vec<(PathBuf, Option<String>)>,
 	already_installed_folders: Vec<PathBuf>,
-	selected_game_folder: Option<usize>
+	selected_game_folder: Option<usize>,
+	check_paths: Vec<(PathBuf, Option<String>)>,
+	manually_selected_folder: bool
 }
 
 #[derive(Deserialize)]
@@ -81,7 +84,9 @@ impl App {
 			performed_automatic_check: false,
 			valid_game_folders: vec![],
 			already_installed_folders: vec![],
-			selected_game_folder: None
+			selected_game_folder: None,
+			check_paths: vec![],
+			manually_selected_folder: false
 		}
 	}
 }
@@ -140,8 +145,6 @@ impl eframe::App for App {
 
 				let x = (|| -> anyhow::Result<()> {
 					if !self.performed_automatic_check {
-						let mut check_paths = vec![];
-
 						let legendary_installed_path =
 							Path::new(&std::env::var("USERPROFILE").context("%USERPROFILE%")?)
 								.join(".config")
@@ -157,7 +160,7 @@ impl eframe::App for App {
 							.context("Legendary installed as JSON")?;
 
 							if let Some(data) = legendary_installed_data.get("Eider") {
-								check_paths.push((
+								self.check_paths.push((
 									PathBuf::from(
 										data.get("install_path")
 											.context("install_path")?
@@ -256,7 +259,7 @@ impl eframe::App for App {
 														};
 													}
 
-													check_paths.push((
+													self.check_paths.push((
 														PathBuf::from(
 															manifest_data
 																.get("InstallLocation")
@@ -318,7 +321,7 @@ impl eframe::App for App {
 														.context("Reading loginusers.vdf")?
 													)?;
 
-												check_paths.push((
+												self.check_paths.push((
 													Path::new(&folder.path)
 														.join("steamapps")
 														.join("common")
@@ -384,7 +387,7 @@ impl eframe::App for App {
 									}
 								}
 
-								check_paths.push((
+								self.check_paths.push((
 									fs::read_link(
 										line.split(':')
 											.skip(1)
@@ -397,7 +400,7 @@ impl eframe::App for App {
 							}
 						}
 
-						for (path, username) in check_paths {
+						for (path, username) in &self.check_paths {
 							// Game folder has Retail
 							let subfolder_retail = path.join("Retail").is_dir();
 
@@ -416,9 +419,10 @@ impl eframe::App for App {
 								&& ishitman3 && !self
 								.valid_game_folders
 								.iter()
-								.any(|(x, y)| *x == path && y.is_some())
+								.any(|(x, y)| x == path && y.is_some())
 							{
-								self.valid_game_folders.push((path.to_owned(), username));
+								self.valid_game_folders
+									.push((path.to_owned(), username.to_owned()));
 
 								self.valid_game_folders = self
 									.valid_game_folders
@@ -449,7 +453,12 @@ impl eframe::App for App {
 					if !self.valid_game_folders.is_empty() {
 						if self.valid_game_folders.len() == 1 {
 							ui.label(
-								RichText::from("✅ Game folder found automatically").size(7.0)
+								RichText::from(if self.manually_selected_folder {
+									"✅ Game folder manually selected"
+								} else {
+									"✅ Game folder found automatically"
+								})
+								.size(7.0)
 							);
 						} else {
 							ComboBox::from_label(
@@ -494,22 +503,32 @@ impl eframe::App for App {
 					} else {
 						ui.label(
 							RichText::from(
-								"It doesn't look like HITMAN 3 is installed anywhere. Make sure \
-								 you're trying to install the framework on a copy of HITMAN 3 \
-								 installed via Steam, Epic Games Launcher/Legendary or the Xbox \
-								 app."
+								"We couldn't find HITMAN 3 anywhere. Make sure you're trying to \
+								 install the framework on a copy of HITMAN 3 installed via Steam, \
+								 Epic Games Launcher/Legendary or the Xbox app, then select your \
+								 folder manually below."
 							)
 							.size(7.0)
 						);
 
-						ui.label(
-							RichText::from(
-								"Try restarting your computer, and if that doesn't fix it, \
-								 contact Atampy26 on Hitman Forum (note that this does not say \
-								 Nexus Mods)."
-							)
-							.size(7.0)
-						);
+						ui.add_space(5.0);
+
+						if ui
+							.button(RichText::from("Select your game folder").size(7.0))
+							.clicked()
+						{
+							if let Some(folder) = FileDialog::new()
+								.set_title(
+									"Select your game folder; it should contain a folder called \
+									 Retail"
+								)
+								.pick_folder()
+							{
+								self.performed_automatic_check = false;
+								self.manually_selected_folder = true;
+								self.check_paths = vec![(folder, None)];
+							}
+						}
 					}
 
 					Ok(())
@@ -580,7 +599,11 @@ impl eframe::App for App {
 												format!("✅ Hello, {}!", s)
 											} else {
 												if self.valid_game_folders.len() == 1 {
-													"✅ Game folder found automatically"
+													if self.manually_selected_folder {
+														"✅ Game folder manually selected"
+													} else {
+														"✅ Game folder found automatically"
+													}
 												} else {
 													"✅ Game folder selected"
 												}
