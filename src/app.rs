@@ -400,7 +400,7 @@ impl eframe::App for App {
 							}
 						}
 
-						for (path, username) in self.check_paths.iter().cloned() {
+						for (path, username) in &self.check_paths {
 							// Game folder has Retail
 							let subfolder_retail = path.join("Retail").is_dir();
 
@@ -419,9 +419,10 @@ impl eframe::App for App {
 								&& ishitman3 && !self
 								.valid_game_folders
 								.iter()
-								.any(|(x, y)| *x == path && y.is_some())
+								.any(|(x, y)| x == path && y.is_some())
 							{
-								self.valid_game_folders.push((path.to_owned(), username));
+								self.valid_game_folders
+									.push((path.to_owned(), username.to_owned()));
 
 								self.valid_game_folders = self
 									.valid_game_folders
@@ -502,19 +503,10 @@ impl eframe::App for App {
 					} else {
 						ui.label(
 							RichText::from(
-								"It doesn't look like HITMAN 3 is installed anywhere. Make sure \
-								 you're trying to install the framework on a copy of HITMAN 3 \
-								 installed via Steam, Epic Games Launcher/Legendary or the Xbox \
-								 app."
-							)
-							.size(7.0)
-						);
-
-						ui.label(
-							RichText::from(
-								"Try restarting your computer, and if that doesn't fix it, \
-								 contact Atampy26 on Hitman Forum (note that this does not say \
-								 Nexus Mods)."
+								"We couldn't find HITMAN 3 anywhere. Make sure you're trying to \
+								 install the framework on a copy of HITMAN 3 installed via Steam, \
+								 Epic Games Launcher/Legendary or the Xbox app, then select your \
+								 folder manually below."
 							)
 							.size(7.0)
 						);
@@ -522,13 +514,7 @@ impl eframe::App for App {
 						ui.add_space(5.0);
 
 						if ui
-							.button(
-								RichText::from(
-									"Alternatively, you can manually select your installation \
-									 folder"
-								)
-								.size(5.0)
-							)
+							.button(RichText::from("Select your game folder").size(7.0))
 							.clicked()
 						{
 							if let Some(folder) = FileDialog::new()
@@ -540,7 +526,7 @@ impl eframe::App for App {
 							{
 								self.performed_automatic_check = false;
 								self.manually_selected_folder = true;
-								self.check_paths.push((folder.to_owned(), None));
+								self.check_paths = vec![(folder, None)];
 							}
 						}
 					}
